@@ -51,12 +51,14 @@ INSTALLED_APPS = [
     
     # Apps
     'ekna_auth',
+    'ekna_app',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     # corsheaders
     'corsheaders.middleware.CorsMiddleware',
+    
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',

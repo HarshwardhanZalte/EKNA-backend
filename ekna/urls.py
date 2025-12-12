@@ -20,4 +20,5 @@ from django.urls import path, include
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/auth/', include('ekna_auth.urls')),
+    path('api/app/', include('ekna_app.urls')),
 ]

@@ -51,7 +51,7 @@ def send_otp_email(user, otp):
         
         
 def send_password_email(user, new_password):
-    subject = 'EKNA - Registration OTP'
+    subject = 'EKNA - Password Reset'
     message = f"""
         Dear {user.username},
 
