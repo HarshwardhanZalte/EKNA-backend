@@ -11,3 +11,8 @@ class UsersAdmin(admin.ModelAdmin):
 @admin.register(OTP)
 class OTPAdmin(admin.ModelAdmin):
     list_display = ('user', 'otp_code', 'is_verified')
+    
+    
+admin.site.site_header = 'EKNA Administration'
+admin.site.site_title = 'EKNA Admin'
+admin.site.index_title = 'Welcome to EKNA Administration'
