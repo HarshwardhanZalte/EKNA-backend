@@ -10,6 +10,11 @@ from ekna_auth.models import Users
 from .models import Organization, OrganizationMembership, Document
 from datetime import timedelta
 from .serializer import OrganizationSerializer, DocumentSerializer, OrganizationMembershipSerializer
+from .utils import get_s3_client, upload_fileobj_to_s3, generate_s3_key
+import mimetypes
+from django.conf import settings
+from django.db import transaction
+import os
 
 # Create your views here.
 
@@ -132,3 +137,88 @@ class OrganizationMembershipView(APIView):
             return Response({"message": "User removed from organization successfully"}, status=status.HTTP_200_OK)
 
         return Response({"error": "User is not a member of any organization"}, status=status.HTTP_400_BAD_REQUEST)
+    
+    
+class DocumentUploadView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        user = request.user
+
+        # Support multiple files via 'files' field, fall back to single 'file'
+        files = request.FILES.getlist('files') or ([request.FILES.get('file')] if request.FILES.get('file') else [])
+        if not files:
+            return Response({'error': 'At least one file is required (use "files" for multiple).'}, status=status.HTTP_400_BAD_REQUEST)
+
+        doc_scope = request.data.get('doc_scope')
+        if not doc_scope:
+            return Response({'error': 'doc_scope is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        doc_scope = doc_scope.upper()
+        organization = None
+
+        if doc_scope == 'ORGANIZATION':
+
+            org_qs = Organization.objects.filter(org_owner=user)
+            if not org_qs.exists():
+                return Response({'error': 'Only an organization owner can upload organization-scoped documents'}, status=status.HTTP_403_FORBIDDEN)
+            try:
+                organization = org_qs.get()
+            except Organization.DoesNotExist:
+
+                return Response({'error': 'Organization not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        elif doc_scope == 'PERSONAL':
+            organization = None
+        else:
+            return Response({'error': 'Invalid document scope. Use "PERSONAL" or "ORGANIZATION".'}, status=status.HTTP_400_BAD_REQUEST)
+
+        successes = []
+        failures = []
+
+        for f in files:
+            if f is None:
+                failures.append({'filename': None, 'error': 'Empty file entry'})
+                continue
+
+            try:
+
+                key = generate_s3_key(f.name)
+                s3_url = upload_fileobj_to_s3(f, settings.AWS_S3_BUCKET_NAME, key)
+
+                with transaction.atomic():
+                    document = Document.objects.create(
+                        doc_name=f.name,
+                        doc_url=s3_url,
+                        doc_owner=user,
+                        doc_scope=doc_scope,
+                        doc_org=organization,
+                        doc_type=getattr(f, 'content_type', None),
+                        doc_size=getattr(f, 'size', None)
+                    )
+
+                successes.append({
+                    'filename': f.name,
+                    'document': DocumentSerializer(document).data
+                })
+
+            except Exception as e:
+                failures.append({
+                    'filename': getattr(f, 'name', None),
+                    'error': str(e)
+                })
+
+        if not successes:
+            return Response({
+                'message': 'No files were uploaded.',
+                'successes': successes,
+                'failures': failures
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+
+        return Response({
+            'message': f'{len(successes)} file(s) uploaded successfully.',
+            'successes': successes,
+            'failures': failures
+        }, status=status.HTTP_201_CREATED)    
+

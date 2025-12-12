@@ -3,19 +3,6 @@ from django.conf import settings
 
 # Create your models here.
 
-class Document(models.Model):
-    SCOPE = [('PERSONAL', 'Personal'), ('ORGANIZATION', 'Organization')]
-
-    doc_name = models.CharField(max_length=100)
-    doc_url = models.URLField()
-    doc_owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    doc_scope = models.CharField(max_length=15, choices=SCOPE, default='PERSONAL')
-    doc_org = models.CharField(max_length=100, null=True, blank=True, default=None)
-
-    def __str__(self):
-        return f"{self.doc_name} - {self.doc_owner}"
-
-
 class Organization(models.Model):
     org_name = models.CharField(max_length=100)
     description = models.TextField()
@@ -23,6 +10,22 @@ class Organization(models.Model):
 
     def __str__(self):
         return f"{self.org_name} - {self.org_owner}"
+
+
+class Document(models.Model):
+    SCOPE = [('PERSONAL', 'Personal'), ('ORGANIZATION', 'Organization')]
+
+    doc_name = models.CharField(max_length=100)
+    doc_url = models.URLField()
+    doc_owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    doc_scope = models.CharField(max_length=15, choices=SCOPE, default='PERSONAL')
+    doc_org = models.ForeignKey(Organization, on_delete=models.CASCADE, null=True, blank=True, default=None)
+    doc_type = models.CharField(max_length=100, null=True, blank=True, default=None)
+    doc_size = models.CharField(max_length=100, null=True, blank=True, default=None)
+    is_processed = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"{self.doc_name} - {self.doc_owner}"
 
 
 class OrganizationMembership(models.Model):
