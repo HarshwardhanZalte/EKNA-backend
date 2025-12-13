@@ -10,7 +10,7 @@ from ekna_auth.models import Users
 from .models import Organization, OrganizationMembership, Document
 from datetime import timedelta
 from .serializer import OrganizationSerializer, DocumentSerializer, OrganizationMembershipSerializer
-from .utils import get_s3_client, upload_fileobj_to_s3, generate_s3_key
+from .utils import get_s3_client, upload_fileobj_to_s3, generate_s3_key, delete_file_from_s3
 import mimetypes
 from django.conf import settings
 from django.db import transaction
@@ -194,7 +194,8 @@ class DocumentUploadView(APIView):
                         doc_scope=doc_scope,
                         doc_org=organization,
                         doc_type=getattr(f, 'content_type', None),
-                        doc_size=getattr(f, 'size', None)
+                        doc_size=getattr(f, 'size', None),
+                        s3_key=key
                     )
 
                 successes.append({
@@ -222,3 +223,54 @@ class DocumentUploadView(APIView):
             'failures': failures
         }, status=status.HTTP_201_CREATED)    
 
+class DocumentDeleteView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        doc_id = request.data.get('doc_id')
+        user = request.user
+        if not doc_id:
+            return Response({'error': 'doc_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            document = Document.objects.get(id=doc_id, doc_owner=user)
+        except Document.DoesNotExist:
+            return Response({'error': 'Document not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if document.doc_scope == 'ORGANIZATION':
+            if not Organization.objects.filter(org_owner=user).exists():
+                return Response(
+                    {"error": "You are not an admin of any organization"}, status=status.HTTP_403_FORBIDDEN
+                )
+            
+        deleted_doc = delete_file_from_s3(settings.AWS_S3_BUCKET_NAME, document.s3_key)
+        
+        if not deleted_doc:
+            return Response({'error': 'Failed to delete document from S3'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        try:
+            document.delete()
+            return Response({'message': 'Document deleted successfully'}, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        
+class DocumentListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        scope = request.data.get('doc_scope')
+        
+        scope = scope.upper()
+        
+        if scope == 'PERSONAL':
+            documents = Document.objects.filter(doc_owner=request.user, doc_scope='PERSONAL')
+        elif scope == 'ORGANIZATION':
+            org = OrganizationMembership.objects.filter(user=request.user).first()
+            if not org:
+                return Response({'error': 'User is not a member of any organization'}, status=status.HTTP_400_BAD_REQUEST)
+            documents = Document.objects.filter(doc_org=org.organization, doc_scope='ORGANIZATION')
+        else:
+            return Response({'error': 'Invalid scope. Use "PERSONAL" or "ORGANIZATION".'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        serializer = DocumentSerializer(documents, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
