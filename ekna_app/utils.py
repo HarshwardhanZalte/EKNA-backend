@@ -1,6 +1,7 @@
 import boto3
 from django.conf import settings
 from botocore.client import Config
+from botocore.exceptions import ClientError
 import uuid
 
 def get_s3_client():
@@ -34,7 +35,16 @@ def upload_fileobj_to_s3(file_obj, bucket_name, key, extra_args=None):
         region = getattr(settings, "AWS_S3_REGION_NAME", "us-east-1")
         return f"https://{bucket_name}.s3.{region}.amazonaws.com/{key}"
     
-    
+
+def delete_file_from_s3(bucket_name, key):
+    try:
+        s3_client = get_s3_client()
+        s3_client.delete_object(Bucket=bucket_name, Key=key)
+        
+        return True
+    except ClientError as e:
+        print(f"Error occurred: {e.response['Error']['Message']}")
+
 def generate_s3_key(filename):
     # Unique key: use uuid + original filename to keep extension
     ext = ""

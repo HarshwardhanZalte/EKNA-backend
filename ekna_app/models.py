@@ -23,6 +23,7 @@ class Document(models.Model):
     doc_type = models.CharField(max_length=100, null=True, blank=True, default=None)
     doc_size = models.CharField(max_length=100, null=True, blank=True, default=None)
     is_processed = models.BooleanField(default=False)
+    s3_key = models.CharField(max_length=512)
 
     def __str__(self):
         return f"{self.doc_name} - {self.doc_owner}"
