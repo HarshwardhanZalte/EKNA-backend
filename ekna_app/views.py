@@ -15,6 +15,7 @@ import mimetypes
 from django.conf import settings
 from django.db import transaction
 import os
+from ekna_app.tasks import process_document_task
 
 # Create your views here.
 
@@ -197,6 +198,8 @@ class DocumentUploadView(APIView):
                         doc_size=getattr(f, 'size', None),
                         s3_key=key
                     )
+                    
+                    process_document_task.enqueue(document.pk)
 
                 successes.append({
                     'filename': f.name,

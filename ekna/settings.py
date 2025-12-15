@@ -48,10 +48,14 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
+    'django.contrib.postgres',
+    'django_tasks',
+    'django_tasks.backends.database',
     
     # Apps
     'ekna_auth',
     'ekna_app',
+    'ekna_ai',
 ]
 
 MIDDLEWARE = [
@@ -199,3 +203,68 @@ AWS_S3_ENDPOINT_URL = os.getenv('AWS_S3_ENDPOINT_URL')
 AWS_S3_BUCKET_NAME = os.getenv('AWS_S3_BUCKET_NAME')
 AWS_S3_USE_SSL = os.getenv('AWS_S3_USE_SSL')
 AWS_S3_ADDRESSING_STYLE = os.getenv('AWS_S3_ADDRESSING_STYLE')
+
+
+# CORS Setup
+CORS_ALLOW_ALL_ORIGINS = True
+
+
+# LLM and Emmbedding Model API
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+LLM_MODEL_NAME = os.getenv("LLM_MODEL_NAME")
+
+HUGGINGFACE_API_TOKEN = os.getenv("HUGGINGFACE_API_KEY")
+EMMBEDDING_MODEL_NAME = os.getenv("EMMBEDDING_MODEL_NAME")
+
+
+# Background Tasks setup
+TASKS = {
+    "default": {
+        "BACKEND": "django_tasks.backends.database.DatabaseBackend",
+        "OPTIONS": {
+            "queue_name": "default"
+        }
+    }
+}
+
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '{levelname} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'level': 'INFO',  # Show INFO and above (WARNING, ERROR)
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+    },
+    'loggers': {
+        # Catch logs from your specific app
+        'ekna_ai': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+        'ekna_app': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+        # Catch generic Django DB Tasks logs
+        'django_tasks': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
+}
