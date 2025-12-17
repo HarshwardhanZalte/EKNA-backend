@@ -11,8 +11,10 @@ class OrganizationAdmin(admin.ModelAdmin):
 class OrganizationMembershipAdmin(admin.ModelAdmin):
     list_display = ('user', 'organization', 'role')
     search_fields = ('user__username', 'organization__org_name')
+    list_filter = ('organization', 'role')
     
 @admin.register(Document)
 class DocumentAdmin(admin.ModelAdmin):
     list_display = ("doc_name", "doc_owner", "doc_scope", "doc_org", "doc_type", "doc_size", "is_processed")
     search_fields = ("doc_name", "doc_owner__username", "doc_org__org_name")
+    list_filter = ("doc_org", "doc_owner", "is_processed")

@@ -9,3 +9,4 @@ class DocumentEmbeddingAdmin(admin.ModelAdmin):
 @admin.register(QnA)
 class QnAAdmin(admin.ModelAdmin):
     list_display = ['user', 'question', 'answer']
+    list_filter = ['user']
