@@ -52,7 +52,7 @@ def _logic_vector_search(query, user, doc_scope, org_id, citations_tracker, targ
 
         query_vector = embeddings_model.embed_query(query)
 
-        TOP_K = getattr(settings, "QNA_TOP_K_CHUNKS", 4)
+        TOP_K = getattr(settings, "QNA_TOP_K_CHUNKS", 10)
 
         similar_chunks = (
             DocumentEmbedding.objects.filter(doc__in=allowed_docs)
@@ -87,7 +87,9 @@ def _logic_vector_search(query, user, doc_scope, org_id, citations_tracker, targ
 
 
 def _logic_db_stats(user, doc_scope, org_id, citations_tracker, date_iso=None, file_type=None, target_doc_id=None):
-    qs = get_allowed_documents(user, doc_scope, org_id, target_doc_id)
+    # For stats queries, we want ALL documents, not just the target_doc_id
+    # target_doc_id is only used for content search, not for counting/stats
+    qs = get_allowed_documents(user, doc_scope, org_id, target_doc_id=None)
 
     if date_iso:
         try:
