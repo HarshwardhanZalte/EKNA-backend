@@ -27,11 +27,21 @@ class AskQuestionView(APIView):
     def post(self, request):
         # 1. Input Validation
         question = request.data.get('question')
-        doc_scope = request.data.get('doc_scope', 'PERSONAL').upper()
+        doc_scope = request.data.get('doc_scope', 'PERSONAL') or ""
         target_doc_id = request.data.get('target_doc_id') # Optional: For specific doc chat
+        
+        doc_scope = doc_scope.upper()
 
-        membership = OrganizationMembership.objects.filter(user=request.user).first()
-        org_id = membership.organization.pk if membership else None
+        # Determine organization context only when using ORGANIZATION scope
+        org_id = None
+        if doc_scope == 'ORGANIZATION':
+            membership = OrganizationMembership.objects.filter(user=request.user).first()
+            if not membership:
+                return Response(
+                    {'error': 'User is not a member of any organization'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            org_id = membership.organization.pk
 
         if not question:
             return Response({'error': 'Question is required'}, status=status.HTTP_400_BAD_REQUEST)

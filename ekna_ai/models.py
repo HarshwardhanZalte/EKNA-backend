@@ -7,7 +7,7 @@ class DocumentEmbedding(models.Model):
     doc = models.ForeignKey(Document, on_delete=models.CASCADE, related_name='embeddings')
     chunk = models.TextField()
     chunk_index = models.IntegerField(default=0) 
-    embedding = VectorField(dimensions=768)
+    embedding = VectorField(dimensions=384)
     
     class Meta:
         unique_together = ('doc', 'chunk_index') 

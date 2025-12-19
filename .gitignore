@@ -3,3 +3,4 @@
 __pycache__
 migrations/*.py
 .vscode
+API_DOCUMENTATION.md

@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from django.conf import settings
 
 # Models
@@ -46,13 +47,12 @@ class QnAService:
         Handles security, context setup, agent execution, and saving history.
         """
         try:
-            # --- 1. Security Validation ---
+            # Security Validation 
             try:
                 validate_access(user, doc_scope, org_id)
                 
                 # Extra check: If target_doc_id is provided, verify existence & permission
                 if target_doc_id:
-                    # We reuse the tool's helper to check if this doc exists in the allowed scope
                     valid_doc = get_allowed_documents(user, doc_scope, org_id, target_doc_id).exists()
                     if not valid_doc:
                          return self._save_qna(user, question_text, "Error: You do not have permission to access this specific document, or it does not exist.", [], org_id)
@@ -60,13 +60,12 @@ class QnAService:
             except PermissionError as e:
                 return self._save_qna(user, question_text, f"Permission Error: {str(e)}", [], org_id)
 
-            # --- 2. Context Setup ---
-            citations = [] # Mutable list passed to tools to capture used docs
-            
-            # Get tools specific to this user/scope
+            # Context Setup 
+            citations = []  
+
             tools = get_tools_for_user(user, doc_scope, org_id, citations, target_doc_id)
             
-            # Determine the label for the system prompt
+
             if target_doc_id:
                 try:
                     doc_name = Document.objects.get(id=target_doc_id).doc_name
@@ -78,7 +77,7 @@ class QnAService:
             
             current_date = datetime.now().strftime("%Y-%m-%d")
 
-            # --- 3. Create Agent (LangChain 1.0) ---
+            # Create Agent
             agent = create_agent(
                 model=self.llm_model,
                 tools=tools,
@@ -86,42 +85,57 @@ class QnAService:
                 middleware=[
                     LoggingMiddleware(),
                     SummarizationMiddleware(
-                            model=self.llm_model,
-                            trigger=("tokens", 1200),  # summarize early
-                        )
-                    ] # Attach logging middleware
+                        model=self.llm_model,
+                        trigger=("tokens", 1200),  # summarize early
+                    ),
+                ], 
             )
 
-            # --- 4. Prepare Input & History ---
-            # Convert DB history to LangChain message format
-            chat_history = self._get_chat_history_messages(user)
-            
+            # Prepare Input & History 
+            chat_history = self._get_chat_history_messages(user, org_id=org_id)
+
             # Construct the input messages list
             messages = chat_history + [{"role": "user", "content": question_text}]
-            
-            # --- 5. Execute Agent ---
-            # invoke() handles the loop: AI -> Tool -> AI -> Final Answer
-            result = agent.invoke({
-                "messages": messages
-            })
-            
-            # Extract the final text response from the last message in the list
-            final_answer = result["messages"][-1].content
 
-            # --- 6. Save & Return ---
+            # Execute Agent with timeout guard
+            # invoke() handles the loop: AI -> Tool -> AI -> Final Answer
+            # Allow a more generous default timeout to avoid unnecessary failures,
+            # while still letting deployments override it via settings.QNA_AGENT_TIMEOUT.
+            timeout_seconds = getattr(settings, "QNA_AGENT_TIMEOUT", 60)
+            try:
+                with ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(agent.invoke, {"messages": messages})
+                    result = future.result(timeout=timeout_seconds)
+
+                # Extract the final text response from the last message in the list
+                final_answer = result["messages"][-1].content
+
+            except FuturesTimeoutError:
+                logger.error(
+                    "QnA Agent timed out after %s seconds for user %s", timeout_seconds, user.id
+                )
+                final_answer = "Error: The AI service took too long to respond. Please try again later."
+
+            # Save & Return
             return self._save_qna(user, question_text, final_answer, citations, org_id)
 
         except Exception as e:
             logger.error(f"QnA Service Error: {e}", exc_info=True)
             return None
 
-    def _get_chat_history_messages(self, user):
+    def _get_chat_history_messages(self, user, org_id=None):
         """
         Fetches the last 3 turns of conversation formatted for create_agent.
         Returns: List[Dict]
         """
-        # Get last 3 interactions (6 messages total)
-        last_interactions = QnA.objects.filter(user=user).order_by('-created_at')[:3]
+        # personal and organization contexts.
+        qs = QnA.objects.filter(user=user)
+        if org_id is None:
+            qs = qs.filter(org__isnull=True)
+        else:
+            qs = qs.filter(org_id=org_id)
+
+        last_interactions = qs.order_by('-created_at')[:3]
         
         history = []
         # Reverse to get chronological order (Oldest -> Newest)
@@ -139,6 +153,6 @@ class QnAService:
             user=user,
             question=question,
             answer=answer,
-            doc_ref=citations, # List of dicts: [{'doc_id': 1, 'doc_name': '...', 'doc_url': '...'}]
+            doc_ref=citations, 
             org_id=org_id
         )

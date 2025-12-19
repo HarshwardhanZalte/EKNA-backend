@@ -1,20 +1,13 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, AllowAny
-from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework.permissions import IsAuthenticated
 from rest_framework import status
-from django.contrib.auth.hashers import make_password
-from django.utils import timezone
 from ekna_auth.models import Users
 from .models import Organization, OrganizationMembership, Document
-from datetime import timedelta
 from .serializer import OrganizationSerializer, DocumentSerializer, OrganizationMembershipSerializer
-from .utils import get_s3_client, upload_fileobj_to_s3, generate_s3_key, delete_file_from_s3
-import mimetypes
+from .utils import upload_fileobj_to_s3, generate_s3_key, delete_file_from_s3
 from django.conf import settings
 from django.db import transaction
-import os
 from ekna_app.tasks import process_document_task
 
 # Create your views here.
@@ -151,7 +144,7 @@ class DocumentUploadView(APIView):
         if not files:
             return Response({'error': 'At least one file is required (use "files" for multiple).'}, status=status.HTTP_400_BAD_REQUEST)
 
-        doc_scope = request.data.get('doc_scope')
+        doc_scope = request.data.get('doc_scope') or ""
         if not doc_scope:
             return Response({'error': 'doc_scope is required'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -241,7 +234,15 @@ class DocumentDeleteView(APIView):
             return Response({'error': 'Document not found'}, status=status.HTTP_404_NOT_FOUND)
 
         if document.doc_scope == 'ORGANIZATION':
-            if not Organization.objects.filter(org_owner=user).exists():
+            # Ensure the requesting user is the owner of the *same* organization
+            # that this document belongs to, not just any organization.
+            if not document.doc_org:
+                return Response(
+                    {"error": "Organization document is not linked to any organization"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if not Organization.objects.filter(id=document.doc_org, org_owner=user).exists():
                 return Response(
                     {"error": "You are not an admin of any organization"}, status=status.HTTP_403_FORBIDDEN
                 )
@@ -261,7 +262,7 @@ class DocumentListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        scope = request.data.get('doc_scope')
+        scope = request.data.get('doc_scope') or ""
         
         scope = scope.upper()
         

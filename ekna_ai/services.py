@@ -1,13 +1,11 @@
 import io
 import logging
-import boto3
 import base64
 import os
-import tempfile 
+import tempfile
 
 # Text Extractors
-import pypdf
-import fitz 
+import fitz
 import docx
 import pptx
 import pandas as pd
@@ -18,26 +16,27 @@ from ekna_app.models import Document
 from ekna_ai.models import DocumentEmbedding
 from ekna_app.utils import get_s3_client
 
-# AI Libraries
+# LangChain
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_huggingface import HuggingFaceEndpointEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
+
+
+# Groq
 from groq import Groq
 
 logger = logging.getLogger(__name__)
 
 class DocumentProcessor:
     def __init__(self):
-        self.embeddings_model = HuggingFaceEndpointEmbeddings(
-            huggingfacehub_api_token=settings.HUGGINGFACE_API_TOKEN,
-            model=settings.EMMBEDDING_MODEL_NAME 
-        )
-        
-        self.groq_client = Groq(
-            api_key=settings.GROQ_API_KEY, 
+        # LOCAL LIGHTWEIGHT MODEL
+        self.embeddings_model = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/all-MiniLM-L6-v2"
         )
 
+        self.groq_client = Groq(api_key=settings.GROQ_API_KEY)
+
         self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
+            chunk_size=800,
             chunk_overlap=100
         )
 
@@ -48,67 +47,53 @@ class DocumentProcessor:
         try:
             doc = Document.objects.get(id=doc_id)
             bucket_name = settings.AWS_S3_BUCKET_NAME
-            
             file_ext = doc.s3_key.split('.')[-1].lower()
-            
+
             with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_ext}") as tmp_file:
-                logger.info(f"Downloading {doc.doc_name} to temp storage...")
                 self.s3_client.download_fileobj(bucket_name, doc.s3_key, tmp_file)
                 temp_file_path = tmp_file.name
 
             text_content = self._extract_text(temp_file_path, file_ext)
 
-            if not text_content:
+            if not text_content.strip():
                 logger.warning(f"No text extracted from {doc.doc_name}")
                 return
 
             DocumentEmbedding.objects.filter(doc=doc).delete()
 
             chunks = self.text_splitter.split_text(text_content)
-            total_chunks = len(chunks)
-            logger.info(f"Generated {total_chunks} chunks. Starting batch embedding...")
+            logger.info(f"Embedding {len(chunks)} chunks")
 
-            # Batch size for API calls
             BATCH_SIZE = 32
-            
-            for i in range(0, total_chunks, BATCH_SIZE):
-                # Slice the batch
-                batch_chunks = chunks[i : i + BATCH_SIZE]
-                
-                # Embed just this batch
-                try:
-                    vectors = self.embeddings_model.embed_documents(batch_chunks)
-                    
-                    # Create DB objects
-                    objs = [
-                        DocumentEmbedding(
-                            doc=doc,
-                            chunk=chunk,
-                            chunk_index=i + idx, 
-                            embedding=vector
-                        ) for idx, (chunk, vector) in enumerate(zip(batch_chunks, vectors))
-                    ]
-                    
-                    # Save batch
-                    DocumentEmbedding.objects.bulk_create(objs)
-                    logger.info(f"Processed batch {i}/{total_chunks}")
-                    
-                except Exception as batch_error:
-                    logger.error(f"Error in batch {i}: {batch_error}")
+
+            for i in range(0, len(chunks), BATCH_SIZE):
+                batch_chunks = chunks[i:i + BATCH_SIZE]
+
+                vectors = self.embeddings_model.embed_documents(batch_chunks)
+
+                objs = [
+                    DocumentEmbedding(
+                        doc=doc,
+                        chunk=chunk,
+                        chunk_index=i + idx,
+                        embedding=vector  # 384-d
+                    )
+                    for idx, (chunk, vector) in enumerate(zip(batch_chunks, vectors))
+                ]
+
+                DocumentEmbedding.objects.bulk_create(objs)
 
             doc.is_processed = True
             doc.save()
-            logger.info(f"Successfully processed {doc.doc_name}")
+            logger.info(f"Document processed: {doc.doc_name}")
 
         except Exception as e:
-            logger.error(f"Error processing document {doc_id}: {str(e)}")
-        
+            logger.error(f"Document processing failed: {e}")
+
         finally:
             if temp_file_path and os.path.exists(temp_file_path):
-                try:
-                    os.remove(temp_file_path)
-                except OSError as e:
-                    logger.warning(f"Error deleting temp file: {e}")
+                os.remove(temp_file_path)
+
 
     def _extract_text(self, file_path, ext) -> str:
         """
@@ -157,7 +142,9 @@ class DocumentProcessor:
                 # Read bytes from disk only for the image processing
                 with open(file_path, "rb") as image_file:
                     image_bytes = image_file.read()
-                    text = self._extract_text_from_image_groq(image_bytes, ext)
+                    extracted = self._extract_text_from_image_groq(image_bytes, ext)
+                    if extracted:
+                        text.append(extracted)
                 
             elif ext == 'txt':
                 with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -170,7 +157,7 @@ class DocumentProcessor:
 
     def _extract_text_from_image_groq(self, image_bytes, ext) -> str:
         """
-        Uses Llama 3.2 Vision on Groq to extract text.
+        Uses llama-4-scout-17b-16e-instruct on Groq to extract text.
         """
         try:
             base64_image = base64.b64encode(image_bytes).decode('utf-8')
