@@ -26,12 +26,23 @@ class LoggingMiddleware(AgentMiddleware):
     Useful for debugging AI decisions in production.
     """
     def wrap_model_call(self, request: ModelRequest, handler):
-        logger.info(f"[AI Middleware] Sending {len(request.messages)} messages to LLM.")
+        message_count = len(request.messages)
+        logger.info(f"[EKNA_AI] Sending {message_count} messages to LLM")
+        
         response = handler(request)
-        logger.info("[AI Middleware] Received response from LLM.")
+        
+        # Only log tool calls (important for debugging)
+        if hasattr(response, 'messages') and response.messages:
+            for msg in response.messages:
+                if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                    for tool_call in msg.tool_calls:
+                        tool_name = getattr(tool_call, 'name', 'unknown')
+                        tool_input = getattr(tool_call, 'args', {})
+                        logger.info(f"Tool call: {tool_name} | Args: {tool_input}")
+        
         return response
 
-# --- SERVICE ---
+# SERVICE
 class QnAService:
     def __init__(self):
         # Initialize the Chat Model once
@@ -64,7 +75,6 @@ class QnAService:
             citations = []  
 
             tools = get_tools_for_user(user, doc_scope, org_id, citations, target_doc_id)
-            
 
             if target_doc_id:
                 try:
@@ -98,10 +108,8 @@ class QnAService:
             messages = chat_history + [{"role": "user", "content": question_text}]
 
             # Execute Agent with timeout guard
-            # invoke() handles the loop: AI -> Tool -> AI -> Final Answer
-            # Allow a more generous default timeout to avoid unnecessary failures,
-            # while still letting deployments override it via settings.QNA_AGENT_TIMEOUT.
             timeout_seconds = getattr(settings, "QNA_AGENT_TIMEOUT", 60)
+            
             try:
                 with ThreadPoolExecutor(max_workers=1) as executor:
                     future = executor.submit(agent.invoke, {"messages": messages})
@@ -111,9 +119,7 @@ class QnAService:
                 final_answer = result["messages"][-1].content
 
             except FuturesTimeoutError:
-                logger.error(
-                    "QnA Agent timed out after %s seconds for user %s", timeout_seconds, user.id
-                )
+                logger.error(f"QnA Agent timed out after {timeout_seconds}s for user {user.id}")
                 final_answer = "Error: The AI service took too long to respond. Please try again later."
 
             # Save & Return

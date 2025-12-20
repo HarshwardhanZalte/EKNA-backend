@@ -20,9 +20,11 @@ from ekna_app.utils import get_s3_client
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 
-
 # Groq
 from groq import Groq
+
+# Supported File Extensions
+SUPPORTED_FILE_EXTENSIONS = ['pdf', 'docx', 'doc', 'xlsx', 'xls', 'csv', 'pptx', 'ppt', 'jpg', 'jpeg', 'png', 'tiff', 'bmp', 'txt']
 
 logger = logging.getLogger(__name__)
 
