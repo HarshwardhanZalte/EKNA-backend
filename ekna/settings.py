@@ -212,10 +212,14 @@ CORS_ALLOW_ALL_ORIGINS = True
 # LLM and Emmbedding Model API
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 LLM_MODEL_NAME = os.getenv("LLM_MODEL_NAME")
+VISION_MODEL_NAME = os.getenv("VISION_MODEL_NAME")
 
 HUGGINGFACE_API_TOKEN = os.getenv("HUGGINGFACE_API_KEY")
 EMMBEDDING_MODEL_NAME = os.getenv("EMMBEDDING_MODEL_NAME")
 
+# QNA Settings
+QNA_TOP_K_CHUNKS = int(os.getenv("QNA_TOP_K_CHUNKS", 6))
+QNA_AGENT_TIMEOUT = int(os.getenv("QNA_AGENT_TIMEOUT", 60))
 
 # Background Tasks setup
 TASKS = {

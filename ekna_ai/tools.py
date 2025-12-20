@@ -2,6 +2,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 from pgvector.django import CosineDistance
+from django.conf import settings
 
 # LangChain Tools
 from langchain_core.tools import tool
@@ -30,18 +31,21 @@ def validate_access(user, doc_scope, org_id):
     return True
 
 def get_allowed_documents(user, doc_scope, org_id, target_doc_id=None):
+    qs = Document.objects.none()
+    
     if doc_scope == 'ORGANIZATION':
-        qs = Document.objects.filter(doc_org_id=org_id, doc_scope='ORGANIZATION')
-    else:
+        qs = Document.objects.filter(doc_org=org_id, doc_scope='ORGANIZATION')
+        
+    if doc_scope == 'PERSONAL':
         qs = Document.objects.filter(doc_owner=user, doc_scope='PERSONAL')
-
+        
     if target_doc_id:
         qs = qs.filter(id=target_doc_id)
+        
     return qs
 
+
 # Tool Logic
-
-
 def _logic_vector_search(query, user, doc_scope, org_id, citations_tracker, target_doc_id=None):
     try:
         embeddings_model = HuggingFaceEmbeddings(
@@ -51,7 +55,7 @@ def _logic_vector_search(query, user, doc_scope, org_id, citations_tracker, targ
         allowed_docs = get_allowed_documents(user, doc_scope, org_id, target_doc_id)
         query_vector = embeddings_model.embed_query(query)
 
-        TOP_K = getattr(settings, "QNA_TOP_K_CHUNKS", 10)
+        TOP_K = settings.QNA_TOP_K_CHUNKS or 6
 
         similar_chunks = (
             DocumentEmbedding.objects.filter(doc__in=allowed_docs)
@@ -72,9 +76,9 @@ def _logic_vector_search(query, user, doc_scope, org_id, citations_tracker, targ
                 f"{item.chunk}\n"
             )
 
-            if item.doc.id not in [c["doc_id"] for c in citations_tracker]:
+            if item.doc.pk not in [c["doc_id"] for c in citations_tracker]:
                 citations_tracker.append({
-                    "doc_id": item.doc.id,
+                    "doc_id": item.doc.pk,
                     "doc_name": item.doc.doc_name,
                     "doc_url": doc_url
                 })
@@ -84,7 +88,6 @@ def _logic_vector_search(query, user, doc_scope, org_id, citations_tracker, targ
     except Exception as e:
         logger.error(f"Vector search error: {e}", exc_info=True)
         return "Vector search failed."
-
 
 
 def _logic_db_stats(user, doc_scope, org_id, citations_tracker, date_iso=None, file_type=None, target_doc_id=None):
@@ -135,7 +138,22 @@ def _logic_db_stats(user, doc_scope, org_id, citations_tracker, date_iso=None, f
 def get_tools_for_user(user, doc_scope, org_id, citations_tracker, target_doc_id=None):
     @tool
     def search_document_content(query: str):
-        """Search inside document text. Returns content AND download links."""
+        """
+        PRIMARY KNOWLEDGE TOOL. Performs a semantic vector search deep inside the user's uploaded documents.
+
+        **WHEN TO USE:**
+        - For questions requiring specific details (e.g., "What is the invoice total?", "Who signed the contract?").
+        - For summarization or analysis of file content.
+        - DO NOT use for simple file listing (use `query_my_document_stats` instead).
+
+        **INPUT GUIDELINES:**
+        - Convert the user's question into a targeted search query (e.g., use "termination clause details" instead of just "termination").
+
+        **WHAT IT RETURNS:**
+        - Relevant text chunks from the documents.
+        - **Source Document Name** for citations.
+        - **Direct Download Link** for the file.
+        """
         logger.info(f"Tool: search_document_content | Query: '{query[:100]}'")
         result = _logic_vector_search(query, user, doc_scope, org_id, citations_tracker, target_doc_id)
         return result

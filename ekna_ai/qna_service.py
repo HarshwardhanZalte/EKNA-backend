@@ -31,15 +31,6 @@ class LoggingMiddleware(AgentMiddleware):
         
         response = handler(request)
         
-        # Only log tool calls (important for debugging)
-        if hasattr(response, 'messages') and response.messages:
-            for msg in response.messages:
-                if hasattr(msg, 'tool_calls') and msg.tool_calls:
-                    for tool_call in msg.tool_calls:
-                        tool_name = getattr(tool_call, 'name', 'unknown')
-                        tool_input = getattr(tool_call, 'args', {})
-                        logger.info(f"Tool call: {tool_name} | Args: {tool_input}")
-        
         return response
 
 # SERVICE
@@ -66,7 +57,7 @@ class QnAService:
                 if target_doc_id:
                     valid_doc = get_allowed_documents(user, doc_scope, org_id, target_doc_id).exists()
                     if not valid_doc:
-                         return self._save_qna(user, question_text, "Error: You do not have permission to access this specific document, or it does not exist.", [], org_id)
+                        return self._save_qna(user, question_text, "Error: You do not have permission to access this specific document, or it does not exist.", [], org_id)
 
             except PermissionError as e:
                 return self._save_qna(user, question_text, f"Permission Error: {str(e)}", [], org_id)
@@ -108,7 +99,7 @@ class QnAService:
             messages = chat_history + [{"role": "user", "content": question_text}]
 
             # Execute Agent with timeout guard
-            timeout_seconds = getattr(settings, "QNA_AGENT_TIMEOUT", 60)
+            timeout_seconds = settings.QNA_AGENT_TIMEOUT or 60
             
             try:
                 with ThreadPoolExecutor(max_workers=1) as executor:
