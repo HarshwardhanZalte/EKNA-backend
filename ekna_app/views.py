@@ -277,12 +277,12 @@ class DocumentListView(APIView):
         scope = scope.upper()
         
         if scope == 'PERSONAL':
-            documents = Document.objects.filter(doc_owner=request.user, doc_scope='PERSONAL')
+            documents = Document.objects.filter(doc_owner=request.user, doc_scope='PERSONAL').order_by('-created_at')
         elif scope == 'ORGANIZATION':
             org = OrganizationMembership.objects.filter(user=request.user).first()
             if not org:
                 return Response({'error': 'User is not a member of any organization'}, status=status.HTTP_400_BAD_REQUEST)
-            documents = Document.objects.filter(doc_org=org.organization, doc_scope='ORGANIZATION')
+            documents = Document.objects.filter(doc_org=org.organization, doc_scope='ORGANIZATION').order_by('-created_at')
         else:
             return Response({'error': 'Invalid scope. Use "PERSONAL" or "ORGANIZATION".'}, status=status.HTTP_400_BAD_REQUEST)
         
