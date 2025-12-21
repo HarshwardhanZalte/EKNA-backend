@@ -41,4 +41,5 @@ class DocumentSerializer(serializers.ModelSerializer):
             "doc_type",
             "doc_size",
             "is_processed",
+            "created_at",
         ]

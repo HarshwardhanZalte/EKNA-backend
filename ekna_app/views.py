@@ -9,6 +9,7 @@ from .utils import upload_fileobj_to_s3, generate_s3_key, delete_file_from_s3
 from django.conf import settings
 from django.db import transaction
 from ekna_app.tasks import process_document_task
+from ekna_ai.models import DocumentEmbedding
 
 # Create your views here.
 
@@ -17,7 +18,13 @@ class OrganizationView(APIView):
 
     def get(self, request):
         user = request.user
-        organizations = Organization.objects.filter(org_owner=user)
+        memberships = OrganizationMembership.objects.filter(user=user)
+
+        if not memberships.exists():
+            return Response({"organizations": []}, status=status.HTTP_200_OK)
+
+        organizations = [membership.organization for membership in memberships]
+
         serializer = OrganizationSerializer(organizations, many=True)
         return Response({"organizations": serializer.data}, status=status.HTTP_200_OK)
 
@@ -77,13 +84,14 @@ class OrganizationMembershipView(APIView):
     def get(self, request):
         user = request.user
 
-        if Organization.objects.filter(org_owner=user).exists():
-            memberships = OrganizationMembership.objects.filter(organization__org_owner=user)
+        if OrganizationMembership.objects.filter(user=user).exists():
+            org = OrganizationMembership.objects.filter(user=user).first()
+            memberships = OrganizationMembership.objects.filter(organization=org.organization)
             serializer = OrganizationMembershipSerializer(memberships, many=True)
             return Response({"memberships": serializer.data}, status=status.HTTP_200_OK)
 
         return Response(
-            {"error": "You are not an admin of any organization"}, status=status.HTTP_403_FORBIDDEN
+            {"error": "You are not an member of any organization"}, status=status.HTTP_403_FORBIDDEN
         )
 
     def post(self, request):
@@ -242,7 +250,7 @@ class DocumentDeleteView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            if not Organization.objects.filter(id=document.doc_org, org_owner=user).exists():
+            if not Organization.objects.filter(id=document.doc_org.pk, org_owner=user).exists():
                 return Response(
                     {"error": "You are not an admin of any organization"}, status=status.HTTP_403_FORBIDDEN
                 )
@@ -252,6 +260,8 @@ class DocumentDeleteView(APIView):
         if not deleted_doc:
             return Response({'error': 'Failed to delete document from S3'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         try:
+            document_embeddings = DocumentEmbedding.objects.filter(doc=document)
+            document_embeddings.delete()
             document.delete()
             return Response({'message': 'Document deleted successfully'}, status=status.HTTP_200_OK)
         except Exception as e:
@@ -261,7 +271,7 @@ class DocumentDeleteView(APIView):
 class DocumentListView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def get(self, request):
+    def post(self, request):
         scope = request.data.get('doc_scope') or ""
         
         scope = scope.upper()

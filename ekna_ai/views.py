@@ -66,3 +66,43 @@ class AskQuestionView(APIView):
             return Response(QnASerializer(qna_instance).data, status=status.HTTP_200_OK)
         else:
             return Response({'error': 'Failed to generate an answer. Please check permissions or try again.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        
+class ChatHistoryView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        scope = request.query_params.get('doc_scope', 'PERSONAL')
+        user = request.user
+
+        if scope == 'PERSONAL':
+            history = QnA.objects.filter(
+                user=user, 
+                org__isnull=True
+            ).order_by('-created_at')[:50]
+
+        elif scope == 'ORGANIZATION':
+            membership = OrganizationMembership.objects.filter(user=user).first()
+            if not membership:
+                return Response([], status=status.HTTP_200_OK)
+            
+            history = QnA.objects.filter(
+                org=membership.organization
+            ).order_by('-created_at')[:50]
+        
+        else:
+            return Response({"error": "Invalid scope"}, status=status.HTTP_400_BAD_REQUEST)
+
+        data = [
+            {
+                "id": chat.pk,
+                "question": chat.question,
+                "answer": chat.answer,
+                "created_at": chat.created_at,
+                "doc_ref": chat.doc_ref
+            } 
+            for chat in history
+        ]
+        
+        # Return reversed (Oldest -> Newest) for chat UI
+        return Response(data[::-1], status=status.HTTP_200_OK)

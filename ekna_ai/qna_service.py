@@ -31,6 +31,12 @@ class LoggingMiddleware(AgentMiddleware):
         
         response = handler(request)
         
+        if response.result and isinstance(response.result, list) and (m := response.result[0]):
+            if u := getattr(m, "usage_metadata", None) or getattr(m, "response_metadata", {}).get("token_usage"):
+                p = u.get("input_tokens") or u.get("prompt_tokens", 0)
+                c = u.get("output_tokens") or u.get("completion_tokens", 0)
+                logger.info(f"[EKNA_AI] Tokens: In={p}, Out={c}, Total={u.get('total_tokens', p+c)}")
+
         return response
 
 # SERVICE
