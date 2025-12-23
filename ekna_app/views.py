@@ -2,7 +2,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import status
-from ekna_auth.models import Users
+from ekna_auth.models import Users, OTP
 from .models import Organization, OrganizationMembership, Document
 from .serializer import OrganizationSerializer, DocumentSerializer, OrganizationMembershipSerializer
 from .utils import upload_fileobj_to_s3, generate_s3_key, delete_file_from_s3
@@ -103,6 +103,12 @@ class OrganizationMembershipView(APIView):
         except Users.DoesNotExist:
             return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
 
+        if not OTP.objects.filter(user=invited_user, is_verified=True).exists():
+            return Response(
+                {"error": "User is not verified"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        
         if OrganizationMembership.objects.filter(user=invited_user).exists():
             return Response(
                 {"error": "User is already a member of an organization"},
