@@ -123,8 +123,22 @@ class DocumentProcessor:
                         text.append(page_text)
             
             elif ext in ['docx', 'doc']:
-                doc = docx.Document(file_path)
-                text.append("\n".join([para.text for para in doc.paragraphs]))
+                doc =docx.Document(file_path)
+
+                content = []
+
+                # Extract paragraphs
+                for para in doc.paragraphs:
+                    if para.text.strip():
+                        content.append(para.text)
+
+                # Extract tables
+                for table in doc.tables:
+                    for row in table.rows:
+                        row_text = [cell.text.strip() for cell in row.cells]
+                        content.append(" | ".join(row_text))
+
+                text.extend(content)
                 
             elif ext in ['xlsx', 'xls', 'csv']:
                 if ext == 'csv':
@@ -135,10 +149,24 @@ class DocumentProcessor:
                 
             elif ext in ['pptx', 'ppt']:
                 prs = pptx.Presentation(file_path)
+                content = []
+
                 for slide in prs.slides:
                     for shape in slide.shapes:
-                        if hasattr(shape, "text"):
-                            text.append(shape.text + "\n")
+
+                        # Extract normal text
+                        if shape.has_text_frame:
+                            for para in shape.text_frame.paragraphs:
+                                if para.text.strip():
+                                    content.append(para.text)
+
+                        # Extract tables
+                        if shape.has_table:
+                            table = shape.table
+                            for row in table.rows:
+                                row_text = [cell.text.strip() for cell in row.cells]
+                                content.append(" | ".join(row_text))
+                text.extend(content)
                             
             elif ext in ['jpg', 'jpeg', 'png', 'tiff', 'bmp']:
                 # Read bytes from disk only for the image processing
